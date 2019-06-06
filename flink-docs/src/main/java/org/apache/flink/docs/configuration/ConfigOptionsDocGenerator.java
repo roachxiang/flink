@@ -57,7 +57,6 @@ public class ConfigOptionsDocGenerator {
 
 	static final OptionsClassLocation[] LOCATIONS = new OptionsClassLocation[]{
 		new OptionsClassLocation("flink-core", "org.apache.flink.configuration"),
-		new OptionsClassLocation("flink-runtime", "org.apache.flink.runtime.io.network.netty"),
 		new OptionsClassLocation("flink-yarn", "org.apache.flink.yarn.configuration"),
 		new OptionsClassLocation("flink-mesos", "org.apache.flink.mesos.configuration"),
 		new OptionsClassLocation("flink-mesos", "org.apache.flink.mesos.runtime.clusterframework"),
@@ -332,11 +331,20 @@ public class ConfigOptionsDocGenerator {
 
 		private Node findGroupRoot(String key) {
 			String[] keyComponents = key.split("\\.");
+			Node lastRootNode = root;
 			Node currentNode = root;
 			for (String keyComponent : keyComponents) {
-				currentNode = currentNode.findChild(keyComponent);
+				final Node childNode = currentNode.getChild(keyComponent);
+				if (childNode == null) {
+					break;
+				} else {
+					currentNode = childNode;
+					if (currentNode.isGroupRoot()) {
+						lastRootNode = currentNode;
+					}
+				}
 			}
-			return currentNode.isGroupRoot() ? currentNode : root;
+			return lastRootNode;
 		}
 
 		private static class Node {
@@ -353,12 +361,8 @@ public class ConfigOptionsDocGenerator {
 				return child;
 			}
 
-			private Node findChild(String keyComponent) {
-				Node child = children.get(keyComponent);
-				if (child == null) {
-					return this;
-				}
-				return child;
+			private Node getChild(String keyComponent) {
+				return children.get(keyComponent);
 			}
 
 			private void assignOption(OptionWithMetaInfo option) {

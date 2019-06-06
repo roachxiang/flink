@@ -29,6 +29,7 @@ import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.io.DiscardingOutputFormat;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.HighAvailabilityOptions;
+import org.apache.flink.configuration.NetworkEnvironmentOptions;
 import org.apache.flink.configuration.TaskManagerOptions;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.concurrent.FutureUtils;
@@ -135,7 +136,7 @@ public class JobManagerHAProcessFailureRecoveryITCase extends TestLogger {
 		this.executionMode = executionMode;
 	}
 
-	@Parameterized.Parameters
+	@Parameterized.Parameters(name = "ExecutionMode {0}")
 	public static Collection<Object[]> executionMode() {
 		return Arrays.asList(new Object[][]{
 				{ ExecutionMode.PIPELINED},
@@ -250,7 +251,7 @@ public class JobManagerHAProcessFailureRecoveryITCase extends TestLogger {
 			zooKeeper.getConnectString(), zookeeperStoragePath.getPath());
 		// Task manager configuration
 		config.setString(TaskManagerOptions.MANAGED_MEMORY_SIZE, "4m");
-		config.setInteger(TaskManagerOptions.NETWORK_NUM_BUFFERS, 100);
+		config.setInteger(NetworkEnvironmentOptions.NETWORK_NUM_BUFFERS, 100);
 		config.setInteger(TaskManagerOptions.NUM_TASK_SLOTS, 2);
 
 		final RpcService rpcService = AkkaRpcServiceUtils.createRpcService("localhost", 0, config);

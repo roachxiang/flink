@@ -26,7 +26,6 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.accumulators.Accumulator;
 import org.apache.flink.api.common.accumulators.AccumulatorHelper;
 import org.apache.flink.api.common.time.Time;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.core.io.InputSplit;
 import org.apache.flink.core.io.InputSplitAssigner;
@@ -68,6 +67,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * An {@code ExecutionJobVertex} is part of the {@link ExecutionGraph}, and the peer
@@ -139,18 +140,26 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	 */
 	@VisibleForTesting
 	ExecutionJobVertex(
-		ExecutionGraph graph,
-		JobVertex jobVertex,
-		int defaultParallelism,
-		Time timeout) throws JobException {
+			ExecutionGraph graph,
+			JobVertex jobVertex,
+			int defaultParallelism,
+			Time timeout) throws JobException {
 
-		this(graph, jobVertex, defaultParallelism, timeout, 1L, System.currentTimeMillis());
+		this(
+			graph,
+			jobVertex,
+			defaultParallelism,
+			JobManagerOptions.MAX_ATTEMPTS_HISTORY_SIZE.defaultValue(),
+			timeout,
+			1L,
+			System.currentTimeMillis());
 	}
 
 	public ExecutionJobVertex(
 			ExecutionGraph graph,
 			JobVertex jobVertex,
 			int defaultParallelism,
+			int maxPriorAttemptsHistoryLength,
 			Time timeout,
 			long initialGlobalModVersion,
 			long createTimestamp) throws JobException {
@@ -211,11 +220,6 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 					numTaskVertices,
 					result.getResultType());
 		}
-
-		Configuration jobConfiguration = graph.getJobConfiguration();
-		int maxPriorAttemptsHistoryLength = jobConfiguration != null ?
-				jobConfiguration.getInteger(JobManagerOptions.MAX_ATTEMPTS_HISTORY_SIZE) :
-				JobManagerOptions.MAX_ATTEMPTS_HISTORY_SIZE.defaultValue();
 
 		// create all task vertices
 		for (int i = 0; i < numTaskVertices; i++) {
@@ -516,6 +520,8 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			@Nonnull Set<AllocationID> allPreviousExecutionGraphAllocationIds,
 			Time allocationTimeout) {
 		final ExecutionVertex[] vertices = this.taskVertices;
+
+		@SuppressWarnings("unchecked")
 		final CompletableFuture<Execution>[] slots = new CompletableFuture[vertices.length];
 
 		// try to acquire a slot future for each execution.
@@ -551,13 +557,18 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 	 * @return A future that is complete once all tasks have canceled.
 	 */
 	public CompletableFuture<Void> cancelWithFuture() {
-		// we collect all futures from the task cancellations
-		CompletableFuture<ExecutionState>[] futures = Arrays.stream(getTaskVertices())
-			.map(ExecutionVertex::cancel)
-			.<CompletableFuture<ExecutionState>>toArray(CompletableFuture[]::new);
+		return FutureUtils.waitForAll(mapExecutionVertices(ExecutionVertex::cancel));
+	}
 
-		// return a conjunct future, which is complete once all individual tasks are canceled
-		return CompletableFuture.allOf(futures);
+	public CompletableFuture<Void> suspend() {
+		return FutureUtils.waitForAll(mapExecutionVertices(ExecutionVertex::suspend));
+	}
+
+	@Nonnull
+	private Collection<CompletableFuture<?>> mapExecutionVertices(final Function<ExecutionVertex, CompletableFuture<?>> mapFunction) {
+		return Arrays.stream(getTaskVertices())
+			.map(mapFunction)
+			.collect(Collectors.toList());
 	}
 
 	public void fail(Throwable t) {
@@ -590,11 +601,6 @@ public class ExecutionJobVertex implements AccessExecutionJobVertex, Archiveable
 			}
 			catch (Throwable t) {
 				throw new RuntimeException("Re-creating the input split assigner failed: " + t.getMessage(), t);
-			}
-
-			// Reset intermediate results
-			for (IntermediateResult result : producedDataSets) {
-				result.resetForNewExecution();
 			}
 		}
 	}
